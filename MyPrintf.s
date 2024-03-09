@@ -122,12 +122,15 @@ MyPrintfLoop1End:
 ; Exit : char ASCII or -1 in case of error
 ;------------------------------------------------
 PutCharFromBuffer:  
+            sub rsp, 0x8                            ; aligning
+
             mov rax, 0x01                           ; preparing for write syscall
             mov rsi, rdi                            ; char buffer saving
             mov rdi, 1                              ; stdout descriptor
             mov rdx, 1                              ; size of buffer
             syscall
-
+            
+            add rsp, 0x8
             ret
 
 
@@ -226,6 +229,7 @@ PrintBinaryIntLoopEnd:
 ;------------------------------------------------
 PrintChar:
             push rdi
+
             ; preparing for write syscall
             mov rax, 0x1    ; write syscall
             mov rdi, 0x1    ; stdout
@@ -336,7 +340,9 @@ PrintOctalIntLoopEnd:
 ; Entry: (char* str)
 ; Exit : None
 ;------------------------------------------------
-PrintString:
+PrintString: 
+            sub rsp, 0x8    ; aligning
+
             mov rsi, rdi    ; saving my string ptr
             call StrLen     
 
@@ -347,6 +353,7 @@ PrintString:
             ; rsi is already saved as a string
             syscall
 
+            add rsp, 0x8
             ret
 
 ;------------------------------------------------
