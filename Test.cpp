@@ -9,5 +9,5 @@ int main()
              "favourite char:%c,\n"
              "random stuff:%d, %c, percents: %%%%%%\n" 
              "BRB: %%%b + jm r1\n",
-             "LOX", 78, 78, 78, 78, 'Z', 56, 'O', 111, 32);
+             "LOX", 0116, 0x4E, 78, 0b1001110, 'Z', 56, 'O', 0b1101111);
 }
