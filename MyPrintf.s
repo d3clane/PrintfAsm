@@ -9,21 +9,21 @@ global MyPrintf
 ;------------------------------------------------
 MyPrintf:
             ; emulating cdecl call - delete ret adr, push args
-            mov [rel MyPrintfTrampolineSaveR12], r12    ; saving r12
-            mov  r12, [rsp]                             ; saving ret adr
-            
+            mov rax, [rsp]  ; saving ret adr
             mov [rsp], r9   ; arg instead of ret adr
             push r8
             push rcx
             push rdx
             push rsi
-    
-            call _MyPrintf
+            push rax        ; pushing ret adr
+
+            jmp _MyPrintf   ; not calling -> no extra ret adr
 
             ; returning everything as it was
-            add rsp, 8 * 4  ; returning stack  as it was
-            mov [rsp], r12  ; returing ret adr as it was
-            mov r12, [rel MyPrintfTrampolineSaveR12]    ; return r12
+MyPrintfReturn:
+            mov rdi, [rsp]  ; saving ret adr
+            add rsp, 8 * 5  ; returning stack  as it was
+            mov [rsp], rdi  ; returing ret adr as it was
             ret
   
 ;------------------------------------------------
@@ -114,7 +114,8 @@ MyPrintfLoop1End:
 
             mov rsp, rbp
             pop rbp
-            ret
+            
+            jmp MyPrintfReturn  ; instead of ret
 
 ;------------------------------------------------
 ; Puts char from buffer to the stdout
