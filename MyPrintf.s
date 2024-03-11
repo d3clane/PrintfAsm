@@ -2,6 +2,8 @@ section .text
 
 global MyPrintf
 
+NumberIsNegative equ 1
+
 ;------------------------------------------------
 ; Trampoline for _MyPrintf to push args on stack 
 ; Entry: stdcall
@@ -34,8 +36,11 @@ MyPrintfReturn:
 _MyPrintf:  push rbp
             mov  rbp, rsp
 
+            push r14    ; saving rax - number of elements
             push r13    ; will be used for saving rdi
             push r12    ; will be used for saving args adr
+
+            xor r14, r14
 
             mov  r12, rbp
             add  r12, 0x8   ; pointing on ret adr
@@ -105,12 +110,15 @@ MyPrintfSwitch1_default:
 MyPrintfSwitch1_end:
             mov rdi, r13        ; saved rdi back to register
             inc rdi             ; next char
+            inc r14
 
             jmp MyPrintfLoop1
 
 MyPrintfLoop1End:
             pop r12
             pop r13
+            mov rax, r14
+            pop r14
 
             mov rsp, rbp
             pop rbp
@@ -186,10 +194,12 @@ PrintBinaryIntArrSize equ 0x30
             sub rsp,  PrintBinaryIntArrSize     ; saving 32 bytes for number + 0b prefix
             mov rax,  -1                        ; counter for array
 
+            xor r8, r8
+            test edi, edi
+            jns PrintBinaryIntLoop
+            neg edi
+            mov r8, NumberIsNegative     ; setting that it was negative
 PrintBinaryIntLoop:
-            cmp rdi, 0x0    ; stop pushing bits in case val is 0
-            je PrintBinaryIntLoopEnd
-
             mov rcx, rdi
             and rcx, 0x1    ; saving only least bit
             add rcx, '0'    ; creating ASCII
@@ -197,6 +207,9 @@ PrintBinaryIntLoop:
             mov [rbp + rax], cl    ; pushing least bit in buf
             dec rax
             shr rdi, 1
+
+            cmp rdi, 0x0    ; stop pushing bits in case val is 0
+            je PrintBinaryIntLoopEnd
             jmp PrintBinaryIntLoop
 
 PrintBinaryIntLoopEnd:
@@ -207,6 +220,13 @@ PrintBinaryIntLoopEnd:
             mov byte [rbp + rax], '0'
             dec rax
 
+            cmp r8, NumberIsNegative
+            jne PrintBinaryIntWrite
+
+            mov byte [rbp + rax], '-'   ; pushing '-' char
+            dec rax     
+
+PrintBinaryIntWrite:
             ;preparing for syscall write 
             mov rdx, rax
             not rdx
@@ -256,10 +276,13 @@ PrintDecimalIntArrSize equ 0x10
             mov rax, rdi                        ; saving value in rax for dividing
             mov rdi,  -1                        ; counter for array
             mov r8,  10d                        ; saving for dividing
-PrintDecimalIntLoop:
-            cmp rax, 0x0    ; stop pushing bits in case val is 0
-            je PrintDecimalIntLoopEnd
 
+            xor r9, r9
+            test eax, eax
+            jns PrintDecimalIntLoop
+            neg eax
+            mov r9, NumberIsNegative     ; setting that it was negative
+PrintDecimalIntLoop:
             xor rdx, rdx
             div r8
             
@@ -267,9 +290,19 @@ PrintDecimalIntLoop:
 
             mov [rbp + rdi], dl    ; pushing ASCII
             dec rdi
+
+            cmp rax, 0x0    ; stop pushing bits in case val is 0
+            je PrintDecimalIntLoopEnd
             jmp PrintDecimalIntLoop
 
 PrintDecimalIntLoopEnd:
+
+            cmp r9, NumberIsNegative
+            jne PrintDecimalIntWrite
+            mov byte [rbp + rdi], '-'
+            dec rdi
+
+PrintDecimalIntWrite:
             ;preparing for syscall write 
             mov rdx, rdi
             not rdx
@@ -299,11 +332,13 @@ PrintOctalIntArrSize equ 0x10
 
             sub rsp,  PrintOctalIntArrSize      ; saving bytes for val + prefix '0'
             mov rax,  -1                        ; counter for array
-
+            
+            xor r8, r8
+            test edi, edi
+            jns PrintOctalIntLoop
+            neg edi
+            mov r8, NumberIsNegative     ; setting that it was negative
 PrintOctalIntLoop:
-            cmp rdi, 0x0    ; stop pushing bits in case val is 0
-            je PrintOctalIntLoopEnd
-
             mov rcx, rdi
             and rcx, 0x7    ; saving only 3 least bits
             add rcx, '0'    ; creating ASCII
@@ -311,6 +346,9 @@ PrintOctalIntLoop:
             mov [rbp + rax], cl    ; pushing least bits in buf
             dec rax
             shr rdi, 3
+
+            cmp rdi, 0x0    ; stop pushing bits in case val is 0
+            je PrintOctalIntLoopEnd
             jmp PrintOctalIntLoop
 
 PrintOctalIntLoopEnd:
@@ -319,6 +357,13 @@ PrintOctalIntLoopEnd:
             mov byte [rbp + rax], '0'
             dec rax
 
+            cmp r8, NumberIsNegative
+            jne PrintOctalIntWrite
+
+            mov byte [rbp + rax], '-'   ; pushing '-' char
+            dec rax     
+
+PrintOctalIntWrite:
             ;preparing for syscall write 
             mov rdx, rax
             not rdx
@@ -371,10 +416,12 @@ PrintHexIntArrSize equ 0x10
             sub rsp,  PrintHexIntArrSize      ; saving bytes for val + prefix '0x'
             mov rax,  -1                        ; counter for array
 
+            xor r8, r8
+            test edi, edi
+            jns PrintHexIntLoop
+            neg edi
+            mov r8, NumberIsNegative     ; setting that it was negative
 PrintHexIntLoop:
-            cmp rdi, 0x0    ; stop pushing bits in case val is 0
-            je PrintHexIntLoopEnd
-
             mov rcx, rdi
             and rcx, 0xf    ; saving only 3 least bits
 
@@ -388,6 +435,9 @@ PrintHexIntPushDigitASCII:
             mov [rbp + rax], cl    ; pushing least bits in buf
             dec rax
             shr rdi, 4
+
+            cmp rdi, 0x0    ; stop pushing bits in case val is 0
+            je PrintHexIntLoopEnd
             jmp PrintHexIntLoop
 
 PrintHexIntLoopEnd:
@@ -398,6 +448,13 @@ PrintHexIntLoopEnd:
             mov byte [rbp + rax], '0'
             dec rax
 
+            cmp r8, NumberIsNegative
+            jne PrintHexIntWrite
+
+            mov byte [rbp + rax], '-'   ; pushing '-' char
+            dec rax     
+
+PrintHexIntWrite:
             ;preparing for syscall write 
             mov rdx, rax
             not rdx
