@@ -19,13 +19,14 @@ MyPrintf:
             push rsi
             push rax        ; pushing ret adr
 
-            jmp _MyPrintf   ; not calling -> no extra ret adr
+            jmp _MyPrintf   ; no calling -> no extra ret adr
 
             ; returning everything as it was
 MyPrintfReturn:
             mov rdi, [rsp]  ; saving ret adr
             add rsp, 8 * 5  ; returning stack  as it was
             mov [rsp], rdi  ; returing ret adr as it was
+
             ret
   
 ;------------------------------------------------
@@ -36,7 +37,7 @@ MyPrintfReturn:
 _MyPrintf:  push rbp
             mov  rbp, rsp
 
-            push r14    ; saving rax - number of elements
+            push r14    ; will be used for saving number of chars printed
             push r13    ; will be used for saving rdi
             push r12    ; will be used for saving args adr
 
@@ -51,6 +52,7 @@ MyPrintfLoop1:
             mov rsi, '%'
             call PrintUntilChar
             ; prints and moves rdi (buffer ptr)
+            add r14, rax
 
             cmp byte [rdi], '%'
             jne MyPrintfLoop1
@@ -64,6 +66,7 @@ MyPrintfLoop1:
             call PutCharFromBuffer
             mov rdi, r13
             inc rdi
+            inc r14
 
             jmp MyPrintfLoop1
 
@@ -108,9 +111,9 @@ MyPrintfSwitch1_default:
             jmp MyPrintfSwitch1_end
 
 MyPrintfSwitch1_end:
+            add r14, rax
             mov rdi, r13        ; saved rdi back to register
             inc rdi             ; next char
-            inc r14
 
             jmp MyPrintfLoop1
 
@@ -140,8 +143,9 @@ PutCharFromBuffer:
             syscall
             
             add rsp, 0x8
-            ret
 
+            mov rax, 0x1                            ; number of chars printed
+            ret
 
 ;------------------------------------------------
 ; Prints string until rsi or '\0' char
@@ -150,7 +154,7 @@ PutCharFromBuffer:
 ;        buffer ptr moved to the end of printing
 ;------------------------------------------------
 PrintUntilChar:
-            mov rdx, 0
+            xor rdx, rdx
 
 PrintUntilCharLoop:
             cmp byte [rdi], sil
@@ -170,14 +174,14 @@ PrintUntilCharLoopEnd:
             mov rsi, rdi
             mov rdi, 1      ; stdout descriptor 
 
-            push rdx
+            push rdx        ; saving rdx
             sub rsp, 0x8    ; 16 byte aligning
             syscall     
             add rsp, 0x8    
             pop rdx
             pop rdi
 
-            mov rax, rdx
+            mov rax, rdx    ; returning len
             ret
 
 ;------------------------------------------------
@@ -213,6 +217,9 @@ PrintBinaryIntLoop:
             jmp PrintBinaryIntLoop
 
 PrintBinaryIntLoopEnd:
+            sub rsp, 0x8    ; aligning
+            push rax        ; saving len
+
 
             ;'0b' prefix
             mov byte [rbp + rax], 'b'
@@ -225,8 +232,11 @@ PrintBinaryIntLoopEnd:
 
             mov byte [rbp + rax], '-'   ; pushing '-' char
             dec rax     
-
+            
 PrintBinaryIntWrite:
+            sub rsp, 0x8    ; aligning
+            push rax        ; saving len
+
             ;preparing for syscall write 
             mov rdx, rax
             not rdx
@@ -238,6 +248,9 @@ PrintBinaryIntWrite:
             mov rdi, 1          ; stdout file descriptor
 
             syscall
+
+            pop rax
+            not rax
 
             mov rsp, rbp
             pop rbp
@@ -296,13 +309,15 @@ PrintDecimalIntLoop:
             jmp PrintDecimalIntLoop
 
 PrintDecimalIntLoopEnd:
-
             cmp r9, NumberIsNegative
             jne PrintDecimalIntWrite
             mov byte [rbp + rdi], '-'
             dec rdi
 
 PrintDecimalIntWrite:
+            sub rsp, 0x8    ; aligning
+            push rdi        ; saving len
+
             ;preparing for syscall write 
             mov rdx, rdi
             not rdx
@@ -314,6 +329,9 @@ PrintDecimalIntWrite:
             mov rdi, 1          ; stdout file descriptor
 
             syscall
+
+            pop rax
+            not rax 
 
             mov rsp, rbp
             pop rbp
@@ -364,6 +382,9 @@ PrintOctalIntLoopEnd:
             dec rax     
 
 PrintOctalIntWrite:
+            sub rsp, 0x8    ; aligning
+            push rax        ; saving len
+
             ;preparing for syscall write 
             mov rdx, rax
             not rdx
@@ -375,6 +396,9 @@ PrintOctalIntWrite:
             mov rdi, 1          ; stdout file descriptor
 
             syscall
+
+            pop rax
+            not rax
 
             mov rsp, rbp
             pop rbp
@@ -392,6 +416,8 @@ PrintString:
             mov rsi, rdi    ; saving my string ptr
             call StrLen     
 
+            sub rsp, 0x8    ; aligning
+            push rax        ; saving len
             ; preparing for write syscall
             mov rdi, 0x1    ; stdout
             mov rdx, rax    ; length
@@ -399,7 +425,8 @@ PrintString:
             ; rsi is already saved as a string
             syscall
 
-            add rsp, 0x8
+            pop rax
+            add rsp, 0x10
             ret
 
 ;------------------------------------------------
@@ -423,15 +450,12 @@ PrintHexIntArrSize equ 0x10
             mov r8, NumberIsNegative     ; setting that it was negative
 PrintHexIntLoop:
             mov rcx, rdi
-            and rcx, 0xf    ; saving only 3 least bits
+            and rcx, 0xf    ; saving only 4 least bits
+            
+            lea r9, [rel HexASCII]
+            add r9, rcx
+            mov rcx, [r9]
 
-            cmp rcx, 0xa 
-            jb PrintHexIntDigitIsNumber
-            add rcx, 'A' - 0xa    ; creating ASCII
-            jmp PrintHexIntPushDigitASCII
-PrintHexIntDigitIsNumber:
-            add rcx, '0'    ; creating ASCII
-PrintHexIntPushDigitASCII:
             mov [rbp + rax], cl    ; pushing least bits in buf
             dec rax
             shr rdi, 4
@@ -455,6 +479,9 @@ PrintHexIntLoopEnd:
             dec rax     
 
 PrintHexIntWrite:
+            sub rsp, 0x8    ; aligning
+            push rax        ; saving len
+
             ;preparing for syscall write 
             mov rdx, rax
             not rdx
@@ -467,6 +494,9 @@ PrintHexIntWrite:
 
             syscall
 
+            pop rax
+            not rax
+
             mov rsp, rbp
             pop rbp
             ret
@@ -477,8 +507,7 @@ PrintHexIntWrite:
 ; Entry: (char* str)
 ; Exit : rax - length
 ;------------------------------------------------
-StrLen:
-            cld 
+StrLen:     cld 
 
             xor rcx, rcx
             dec rcx
@@ -490,12 +519,9 @@ StrLen:
             mov rax, rcx
             ret
 
-
-section .data
-
-MyPrintfTrampolineSaveR12 dq 0
-
 section .rodata
+ 
+HexASCII db "0123456789ABCDEF"
  
 MyPrintfSwitch1Table:
             dq MyPrintfSwitch1_b       - MyPrintfSwitch1Table
@@ -527,3 +553,5 @@ MyPrintfSwitch1Table:
             dq MyPrintfSwitch1_default - MyPrintfSwitch1Table
 
             dq MyPrintfSwitch1_x       - MyPrintfSwitch1Table
+
+
