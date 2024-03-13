@@ -37,11 +37,8 @@ MyPrintfReturn:
 _MyPrintf:  push rbp
             mov  rbp, rsp
 
-            push r14    ; will be used for saving number of chars printed
             push r13    ; will be used for saving rdi
             push r12    ; will be used for saving args adr
-
-            xor r14, r14
 
             mov  r12, rbp
             add  r12, 0x8   ; pointing on ret adr
@@ -52,7 +49,6 @@ MyPrintfLoop1:
             mov rsi, '%'
             call PrintUntilChar
             ; prints and moves rdi (buffer ptr)
-            add r14, rax
 
             cmp byte [rdi], '%'
             jne MyPrintfLoop1
@@ -63,10 +59,10 @@ MyPrintfLoop1:
             jne MyPrintfSwitch1
 
             mov r13, rdi
-            call PutCharFromBuffer
+            mov dil, '%'
+            call PrintChar
             mov rdi, r13
             inc rdi
-            inc r14
 
             jmp MyPrintfLoop1
 
@@ -86,7 +82,7 @@ MyPrintfSwitch1:
             mov rdi, [r12]      ; argument for print functions
 
             lea rdx, [rel MyPrintfSwitch1Table]
-            add rdx, [rdx + 8 * rax]    ; calculating jump with switch table
+            add rdx, [rdx + 8 * rax]    ; calculating jump with jump table
             jmp rdx
 
 MyPrintfSwitch1_b:
@@ -111,7 +107,6 @@ MyPrintfSwitch1_default:
             jmp MyPrintfSwitch1_end
 
 MyPrintfSwitch1_end:
-            add r14, rax
             mov rdi, r13        ; saved rdi back to register
             inc rdi             ; next char
 
@@ -120,32 +115,18 @@ MyPrintfSwitch1_end:
 MyPrintfLoop1End:
             pop r12
             pop r13
-            mov rax, r14
-            pop r14
 
+            ; syscall write for buffer
+            mov rax, 0x1
+            mov rdi, 0x1
+            lea rsi, [rel PrintfBuffer]
+            mov rdx, [rel PrintfBufferSize]
+            syscall
+            
             mov rsp, rbp
             pop rbp
             
             jmp MyPrintfReturn  ; instead of ret
-
-;------------------------------------------------
-; Puts char from buffer to the stdout
-; Entry: (char* buffer)
-; Exit : char ASCII or -1 in case of error
-;------------------------------------------------
-PutCharFromBuffer:  
-            sub rsp, 0x8                            ; aligning
-
-            mov rax, 0x01                           ; preparing for write syscall
-            mov rsi, rdi                            ; char buffer saving
-            mov rdi, 1                              ; stdout descriptor
-            mov rdx, 1                              ; size of buffer
-            syscall
-            
-            add rsp, 0x8
-
-            mov rax, 0x1                            ; number of chars printed
-            ret
 
 ;------------------------------------------------
 ; Prints string until rsi or '\0' char
@@ -161,33 +142,25 @@ PrintUntilCharLoop:
             je PrintUntilCharLoopEnd
             cmp byte [rdi], 0x0     ; '\0' char
             je PrintUntilCharLoopEnd
+            
+            push rdi
+            push rdx
+            mov  dil, [rdi]
+            call PrintToBuffer
+            pop rdx
+            pop rdi
+
             inc rdi
             inc rdx
             jmp PrintUntilCharLoop
 
 PrintUntilCharLoopEnd:
-            ;calling write syscall 
-            mov rax, 0x01
-            push rdi
-
-            sub rdi, rdx
-            mov rsi, rdi
-            mov rdi, 1      ; stdout descriptor 
-
-            push rdx        ; saving rdx
-            sub rsp, 0x8    ; 16 byte aligning
-            syscall     
-            add rsp, 0x8    
-            pop rdx
-            pop rdi
-
-            mov rax, rdx    ; returning len
             ret
 
 ;------------------------------------------------
 ; Prints int in binary format
 ; Entry: (int val)
-; Exit : None
+; Exit : number of chars printed
 ;------------------------------------------------
 PrintBinaryInt:
             push rbp
@@ -228,56 +201,38 @@ PrintBinaryIntLoopEnd:
             dec rax
 
             cmp r8, NumberIsNegative
-            jne PrintBinaryIntWrite
+            jne PrintBinaryIntToBufferLoop
 
             mov byte [rbp + rax], '-'   ; pushing '-' char
             dec rax     
             
-PrintBinaryIntWrite:
-            sub rsp, 0x8    ; aligning
-            push rax        ; saving len
-
-            ;preparing for syscall write 
-            mov rdx, rax
-            not rdx
-            ; rdx = -rax = ~rax + 1. No inc because actual size is rdx - 1
-
-            lea rsi, [rbp + rax + 1]  ; string
-
-            mov rax, 0x1        ; preparing for syscall write
-            mov rdi, 1          ; stdout file descriptor
-
-            syscall
-
+PrintBinaryIntToBufferLoop:
+            inc rax
+            cmp rax, 0
+            jge PrintBinaryIntToBufferLoopEnd
+            
+            push rax
+            mov  rdi, [rbp + rax]
+            call PrintToBuffer
             pop rax
-            not rax
 
+            jmp PrintBinaryIntToBufferLoop
+
+PrintBinaryIntToBufferLoopEnd:
             mov rsp, rbp
             pop rbp
-            ret
+            ret 
 
 ;------------------------------------------------
 ; Prints char
 ; Entry: (char ch)
-; Exit : None
 ;------------------------------------------------
-PrintChar:
-            push rdi
-
-            ; preparing for write syscall
-            mov rax, 0x1    ; write syscall
-            mov rdi, 0x1    ; stdout
-            mov rsi, rsp    ; char ptr
-            mov rdx, 1      ; length
-            syscall
-
-            pop rdi
+PrintChar:  call PrintToBuffer
             ret
 
 ;------------------------------------------------
 ; Prints int in decimal format
 ; Entry: (int val)
-; Exit : None
 ;------------------------------------------------
 PrintDecimalInt:
             push rbp
@@ -310,37 +265,30 @@ PrintDecimalIntLoop:
 
 PrintDecimalIntLoopEnd:
             cmp r9, NumberIsNegative
-            jne PrintDecimalIntWrite
+            jne PrintDecimalIntToBufferLoop
             mov byte [rbp + rdi], '-'
             dec rdi
 
-PrintDecimalIntWrite:
-            sub rsp, 0x8    ; aligning
-            push rdi        ; saving len
+PrintDecimalIntToBufferLoop:
+            inc rdi
+            cmp rdi, 0
+            jge PrintDecimalIntToBufferLoopEnd
+            
+            push rdi
+            mov  rdi, [rbp + rdi]
+            call PrintToBuffer
+            pop rdi
 
-            ;preparing for syscall write 
-            mov rdx, rdi
-            not rdx
-            ; rdx = -rax = ~rax + 1. No inc because actual size is rdx - 1
+            jmp PrintDecimalIntToBufferLoop
 
-            lea rsi, [rbp + rdi + 1]  ; string
-
-            mov rax, 0x1        ; preparing for syscall write
-            mov rdi, 1          ; stdout file descriptor
-
-            syscall
-
-            pop rax
-            not rax 
-
+PrintDecimalIntToBufferLoopEnd:
             mov rsp, rbp
             pop rbp
-            ret
+            ret 
 
 ;------------------------------------------------
 ; Prints int in octal format
 ; Entry: (int val)
-; Exit : None
 ;------------------------------------------------
 PrintOctalInt:
             push rbp
@@ -366,73 +314,48 @@ PrintOctalIntLoop:
             shr rdi, 3
 
             cmp rdi, 0x0    ; stop pushing bits in case val is 0
-            je PrintOctalIntLoopEnd
+            je PrintOctalIntToBufferLoop
             jmp PrintOctalIntLoop
 
-PrintOctalIntLoopEnd:
-
-            ;'0' prefix
-            mov byte [rbp + rax], '0'
-            dec rax
-
-            cmp r8, NumberIsNegative
-            jne PrintOctalIntWrite
-
-            mov byte [rbp + rax], '-'   ; pushing '-' char
-            dec rax     
-
-PrintOctalIntWrite:
-            sub rsp, 0x8    ; aligning
-            push rax        ; saving len
-
-            ;preparing for syscall write 
-            mov rdx, rax
-            not rdx
-            ; rdx = -rax = ~rax + 1. No inc because actual size is rdx - 1
-
-            lea rsi, [rbp + rax + 1]  ; string
-
-            mov rax, 0x1        ; preparing for syscall write
-            mov rdi, 1          ; stdout file descriptor
-
-            syscall
-
+PrintOctalIntToBufferLoop:
+            inc rax
+            cmp rax, 0
+            jge PrintOctalIntToBufferLoopEnd
+            
+            push rax
+            mov  rdi, [rbp + rax]
+            call PrintToBuffer
             pop rax
-            not rax
 
+            jmp PrintOctalIntToBufferLoop
+
+PrintOctalIntToBufferLoopEnd:
             mov rsp, rbp
             pop rbp
-            ret
-
+            ret 
 
 ;------------------------------------------------
 ; Prints string
 ; Entry: (char* str)
-; Exit : None
+; Exit : number of chars printed
 ;------------------------------------------------
 PrintString: 
-            sub rsp, 0x8    ; aligning
+PrintStringLoop:
+            cmp byte [rdi], 0x0
+            je PrintStringLoopEnd
 
-            mov rsi, rdi    ; saving my string ptr
-            call StrLen     
-
-            sub rsp, 0x8    ; aligning
-            push rax        ; saving len
-            ; preparing for write syscall
-            mov rdi, 0x1    ; stdout
-            mov rdx, rax    ; length
-            mov rax, 0x1    ; call number
-            ; rsi is already saved as a string
-            syscall
-
-            pop rax
-            add rsp, 0x10
+            push rdi
+            mov dil, [rdi]
+            call PrintToBuffer
+            pop rdi
+            inc rdi
+            jmp PrintStringLoop
+PrintStringLoopEnd:
             ret
 
 ;------------------------------------------------
 ; Prints int in hex format
 ; Entry: (int val)
-; Exit : None
 ;------------------------------------------------
 PrintHexInt:
             push rbp
@@ -473,51 +396,62 @@ PrintHexIntLoopEnd:
             dec rax
 
             cmp r8, NumberIsNegative
-            jne PrintHexIntWrite
+            jne PrintHexIntToBufferLoop
 
             mov byte [rbp + rax], '-'   ; pushing '-' char
             dec rax     
 
-PrintHexIntWrite:
-            sub rsp, 0x8    ; aligning
-            push rax        ; saving len
-
-            ;preparing for syscall write 
-            mov rdx, rax
-            not rdx
-            ; rdx = -rax = ~rax + 1. No inc because actual size is rdx - 1
-
-            lea rsi, [rbp + rax + 1]  ; string
-
-            mov rax, 0x1        ; preparing for syscall write
-            mov rdi, 1          ; stdout file descriptor
-
-            syscall
-
+PrintHexIntToBufferLoop:
+            inc rax
+            cmp rax, 0
+            jge PrintHexIntToBufferLoopEnd
+            
+            push rax
+            mov  rdi, [rbp + rax]
+            call PrintToBuffer
             pop rax
-            not rax
 
+            jmp PrintHexIntToBufferLoop
+
+PrintHexIntToBufferLoopEnd:
             mov rsp, rbp
             pop rbp
-            ret
+            ret 
+            
+;------------------------------------------------
+;
+;------------------------------------------------
+PrintToBuffer:
+            mov rax, [rel PrintfBufferSize]
+            lea rcx, [rel PrintfBuffer]
+            cmp rax, [rel PrintfBufferCapacity]
+            jl PrintToBufferPushChar 
+            
+            push rcx
+            ; preparing for syscall write
+            mov rdx, rax
+            mov rax, 0x1
+            mov rdi, 0x1
+            mov rsi, rcx
+            syscall
 
+            mov qword [rel PrintfBufferSize], 0
+            mov rax, 0  
+
+            pop rcx
+PrintToBufferPushChar:
+            mov [rcx + rax], dil
+            inc qword [rel PrintfBufferSize]
+
+            ret  
 
 ;------------------------------------------------
-; Returns strlen of null terminated string
-; Entry: (char* str)
-; Exit : rax - length
-;------------------------------------------------
-StrLen:     cld 
 
-            xor rcx, rcx
-            dec rcx
-            mov al, 0x0     ; null terminating 
-            repne scasb
-            not rcx
-            dec rcx
+section .data
 
-            mov rax, rcx
-            ret
+PrintfBufferSize     dq 0
+PrintfBuffer         db 256 dup(0)
+PrintfBufferCapacity dq $ - PrintfBuffer
 
 section .rodata
  
