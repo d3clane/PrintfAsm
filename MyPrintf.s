@@ -145,8 +145,10 @@ PrintUntilCharLoop:
             
             push rdi
             push rdx
+            push rsi
             mov  dil, [rdi]
             call PrintToBuffer
+            pop rsi
             pop rdx
             pop rdi
 
@@ -428,6 +430,7 @@ PrintToBuffer:
             jl PrintToBufferPushChar 
             
             push rcx
+            push rdi
             ; preparing for syscall write
             mov rdx, rax
             mov rax, 0x1
@@ -438,6 +441,7 @@ PrintToBuffer:
             mov qword [rel PrintfBufferSize], 0
             mov rax, 0  
 
+            pop rdi
             pop rcx
 PrintToBufferPushChar:
             mov [rcx + rax], dil
@@ -450,7 +454,7 @@ PrintToBufferPushChar:
 section .data
 
 PrintfBufferSize     dq 0
-PrintfBuffer         db 256 dup(0)
+PrintfBuffer         db 8 dup(0)
 PrintfBufferCapacity dq $ - PrintfBuffer
 
 section .rodata
